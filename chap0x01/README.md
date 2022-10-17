@@ -101,7 +101,7 @@
 
 - 搭建满足如下[黄Sir的拓扑图](https://c4pr1c3.github.io/cuc-ns/chap0x01/exp.html)所示的虚拟机网络拓扑
 
-  > ![引用黄sir的网络拓扑图](https://c4pr1c3.github.io/cuc-ns/chap0x01/attach/chap0x01/media/vb-exp-layout.png)
+  > ![网络拓扑图](img/拓扑图.jpg)
 
 
 
@@ -121,9 +121,9 @@
 
 - [x] 网关可以直接访问攻击者主机和靶机
 
-  <img src="img/网关访问靶机和攻击者主机1.jpg" alt="网关访问靶机和攻击者主机1" style="zoom:50%;" />
+  ![网关访问靶机和攻击者1](img/网关访问靶机和攻击者主机1.jpg)
 
-  <img src="img/网关访问靶机2.jpg" alt="网关访问靶机2" style="zoom:50%;" />
+  ![网关访问靶机2](img/网关访问靶机2.jpg)
 
   
 
@@ -131,19 +131,19 @@
 
   ```bash
   # 网关安装tcpdump
-  apt intsall tcpdump
+  apt intstall tcpdump
   
   # 对对应网卡进行监控
   /usr/sbin/tcpdump -i <网卡名称>
   ```
 
-  <img src="img/网关检测内部网络1.jpg" alt="网关检测内部网络1" style="zoom:38%;" />
+  ![网关检测内部网络1](img/网关检测内部网络1.jpg)
 
-  <img src="img/网关检测内部网络2.jpg" alt="网关检测内部网络2" style="zoom:38%;" />
+  ![网关检测内部网络2](img/网关检测内部网络2.jpg)
 
   关闭网关虚拟机后，各靶机无法访问互联网，结果如下图所示：
 
-  <img src="img/关闭网关后靶机无法访问外网.png" alt="关闭网关后靶机无法访问外网" style="zoom:50%;" />
+  ![关闭网关后靶机无法访问外网](img/关闭网关后靶机无法访问外网.png)
 
   
 
