@@ -20,9 +20,9 @@
 
 - 网络拓扑：
 
-  - 攻击者主机 Attacker-kali ( 10.0.2.6/24 )
-  - 网关 Gateway-debian
-  - 靶机 Victim ( 172.16.111.114 )
+  - 攻击者主机 Attacker-kali ( 172.16.111.125 )
+  - 网关 Gateway-debian ( 172.16.111.1 )
+  - 靶机 Victim-kali ( 172.16.111.119)
   
   ![网络拓扑](img/网络拓扑.jpg)
 
@@ -38,7 +38,7 @@
   - [x] UDP scan
 
 - [x] 上述每种扫描技术的实现测试均需要测试端口状态为：`开放`、`关闭` 和 `过滤` 状态时的程序执行结果
-- [ ] 提供每一次扫描测试的抓包结果并分析与课本中的扫描方法原理是否相符？如果不同，试分析原因；
+- [x] 提供每一次扫描测试的抓包结果并分析与课本中的扫描方法原理是否相符？如果不同，试分析原因；
 - [x] 在实验报告中详细说明实验网络环境拓扑、被测试 IP 的端口状态是如何模拟的
 
 - （可选）复刻 `nmap` 的上述扫描技术实现的命令行参数开关 【对比我发的包和nmap发的包】
@@ -50,19 +50,13 @@
 - Scapy 安装
 
   ```bash
-  # alpine 安装scapy包
-  / # apk add update && apk add scapy
-  
-  # 查看scapy包信息
-  / # apk search scapy
-  scapy-doc-2.4.5-r2
-  scapy-2.4.5-r2
+  sudo apt-get install scapy
   ```
-
+  
 - ufw 安装
 
   ```bash
-  / # apk add ufw
+  sudo apt-get install ufw
   ```
 
 
@@ -82,14 +76,27 @@
 - 端口关闭状态：对应端口未开启监听，防火墙未启用
 
   ```python
-  ufw disables
+  ufw disable
   ```
 
-- 端口开启状态：对应端口开启监听，防火墙处于关闭状态
+- 端口开启状态：对应端口开启监听，防火墙处于开启状态
 
   ```bash
-  systemctl start apache2 # port 80  apache2在80端口提供基于TCO的服务
-  systemctl start dnsmasp # port 53  DNS在53端口提供基于UDP的服务
+  ## 开启端口
+  sudo ufw enable && sudo ufw allow 80/tcp
+  sudo ufw enable && sudo ufw allow 53/udp
+  
+  ## apache2在80端口提供基于TCP的服务
+  systemctl start apache2 # port 80 
+  systemctl start dnsmasp # port 53
+  
+  ## 开启端口
+  iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+  iptables -I INPUT -p ucp --dport 53 -j ACCEPT
+  
+  ## 查看端口信息
+  iptables -L -n
+  
   ```
 
 - 端口过滤状态：对应端口开启监听, 防火墙处于开启状态。
@@ -97,6 +104,18 @@
   ```bash
   ufw enable && ufw deny 80/tcp
   ufw enable && ufw deny 53/udp
+  
+  ## 端口过滤
+  iptables -I INPUT -p tcp --dport 80 -j REJECT --reject-with tcp-reset
+  ```
+  
+- 有关 `iptables` 的操作
+
+  ```bash
+  # 保存 iptables 信息到文件
+  sudo iptables-save -c > iptables.rules
+  # 修改后，保存重启
+  iptables-restore < iptables.rules
   ```
 
   
@@ -105,49 +124,66 @@
 
 > 先发送一个S，然后等待回应。如果有回应且标识为RA，说明目标端口处于关闭状态；如果有回应且标识为SA，说明目标端口处于开放状态。这时TCP connect scan会回复一个RA，在完成三次握手的同时断开连接.
 >
-> ```
-> ufw enable && ufw deny 80/tcp
-> ufw enable && ufw deny 53/udp
-> ```
 
 **TCP-connect-scan code**
 
 ```python
 from scapy.all import *
 
-src_port = RandShort()
-dst_ip = "172.16.111.124"
-dst_port = 80
 
-resp = sr1(IP(dst=dst_ip)/TCP(sport=src_port,dport=dst_port,flags="S"),timeout=10)
+def tcpconnect(dst_ip, dst_port, timeout=10):
+    pkts = sr1(IP(dst=dst_ip)/TCP(dport=dst_port,flags="S"),timeout=timeout)
+    if pkts is None:
+        print("Filtered")
+    elif(pkts.haslayer(TCP)):
+        if(pkts.getlayer(TCP).flags == 0x12):  #Flags: 0x012 (SYN, ACK)
+            send_rst = sr(IP(dst=dst_ip)/TCP(dport=dst_port,flags="AR"),timeout=timeout)
+            print("Open")
+        elif (pkts.getlayer(TCP).flags == 0x14):   #Flags: 0x014 (RST, ACK)
+            print("Closed")
 
-if(resp.haslayer(TCP)):
-    if (resp.getlayer(TCP).flags == 0x14):   
-        print "Closed"
-    elif(resp.getlayer(TCP).flags == 0x12): 
-        send_rst = sr(IP(dst=dst_ip)/TCP(sport=src_port,dport=dst_port,flags="AR"),timeout=10)
-        print "Open"
+tcpconnect('172.16.111.119', 80)
 
-
-elif resp is None:
-    print "Filtered"
 ```
 
 **nmap 复刻**
 
-```python
-nmap -sT -p 80 172.16.111.124
+```bash
+nmap -sT -p 80 172.16.111.119
 ```
 
 - 端口关闭：
   - code
+  
+    ![tcp-connect-closed](img/tcp-connect-closed.jpg)
+  
+    ![tcp-connect-wireshark-1](img/tcp-connect-wireshark-1.jpg)
+  
   - nmap
+  
+    ![tcp-connect-wireshark-1](img/tcp-connect-wireshark-1.jpg)
+  
 - 端口开启：
   - code
+  
+    ![tcp-connect-open-code](img/tcp-connect-open-code.jpg)
+  
+    ![tcp-connect-open-ws](img/tcp-connect-open-ws.jpg)
+  
   - nmap
+  
+    ![tcp-connect-open-nmap](img/tcp-connect-open-nmap.jpg)
+  
 - 端口过滤：
   - code
+  
+    ![tcp-connect-filterd](img/tcp-connect-filterd.jpg)
+  
+    ![tcp-connect-filterd-ws](img/tcp-connect-filterd-ws.jpg)
+  
   - nmap
+  
+    ![tcp-connect-filterd-nmap](img/tcp-connect-filterd-nmap.jpg)
 
 ### TCP stealth scan
 
@@ -158,38 +194,60 @@ nmap -sT -p 80 172.16.111.124
 ```python
 from scapy.all import *
 
-src_port = RandShort()
-dst_ip = "172.16.111.2" 
-dst_port = 80
 
-stl_resp = sr1(IP(dst=dst_ip)/TCP(sport=src_port,dport=dst_port,flags="S"),timeout=10)
+def tcpstealthscan(dst_ip, dst_port, timeout=10):
+    pkts = sr1(IP(dst=dst_ip)/TCP(dport=dst_port, flags="S"), timeout=10)
+    if (pkts is None):
+        print("Filtered")
+    elif(pkts.haslayer(TCP)):
+        if(pkts.getlayer(TCP).flags == 0x12):
+            send_rst = sr(IP(dst=dst_ip) /
+                          TCP(dport=dst_port, flags="R"), timeout=10)
+            print("Open")
+        elif (pkts.getlayer(TCP).flags == 0x14):
+            print("Closed")
+        elif(pkts.haslayer(ICMP)):
+            if(int(pkts.getlayer(ICMP).type) == 3 and int(stealth_scan_resp.getlayer(ICMP).code) in [1, 2, 3, 9, 10, 13]):
+                print("Filtered")
 
-if(resp.haslayer(TCP)):
-    if (resp.getlayer(TCP).flags == 0x14):
-        print "Closed"
-    elif(resp.getlayer(TCP).flags == 0x12):
-        send_rst = sr(IP(dst=dst_ip)/TCP(sport=src_port,dport=dst_port,flags="R"),timeout=10)
-        print "Open"
 
-elif stl_resp is None:
-    print "Filtered"
+tcpstealthscan('172.16.111.119', 80)
 ```
 
 **nmap**
 
 ```bash
-nmap -sS -p 80 172.16.111.2
+nmap -sS -p 80 172.16.111.119
 ```
 
 - 端口关闭：
   - code
+  
+    ![stealth-close-code](img/stealth-close-code.jpg)
+  
   - nmap
+  
+    ![stealth-close-nmap](img/stealth-close-nmap.jpg)
+  
 - 端口开启：
   - code
+  
+    ![stealth-open-code](img/stealth-open-code.jpg)
+  
   - nmap
+  
+    ![stealth-open-nmap](img/stealth-open-nmap.jpg)
+  
 - 端口过滤：
   - code
+  
+    ![tcp-stealth-code](img/tcp-stealth-code.jpg)
+  
+    ![tcp-stealth-code-ws](img/tcp-stealth-code-ws.jpg)
+  
   - nmap
+  
+    ![tcp-stealth-code-nmap](img/tcp-stealth-code-nmap.jpg)
 
 
 
@@ -202,38 +260,54 @@ nmap -sS -p 80 172.16.111.2
 ```python
 from scapy.all import *
 
-dst_ip = "172.16.111.2"
-dst_port = 80
 
-resp = sr1(IP(dst=dst_ip)/TCP(dport=dst_port,flags="FPU"),timeout=10)
+def Xmasscan(dst_ip, dst_port, timeout=10):
+    pkts = sr1(IP(dst=dst_ip)/TCP(dport=dst_port, flags="FPU"), timeout=10)
+    if (pkts is None):
+        print("Open|Filtered")
+    elif(pkts.haslayer(TCP)):
+        if(pkts.getlayer(TCP).flags == 0x14):
+            print("Closed")
+    elif(pkts.haslayer(ICMP)):
+        if(int(pkts.getlayer(ICMP).type) == 3 and int(pkts.getlayer(ICMP).code) in [1, 2, 3, 9, 10, 13]):
+            print("Filtered")
 
-if(resp.haslayer(TCP)):
-    if(resp.getlayer(TCP).flags == 0x14):
-        print "Closed"
 
-elif resp is None:
-    print "Open|Filtered"
-
-#elif(resp.haslayer(ICMP)):
-#    if(int(resp.getlayer(ICMP).type)==3 and int(resp.getlayer(ICMP).code) in [1,2,3,9,10,13]):
-#        print "Filtered"
+Xmasscan('172.16.111.119', 80)
 ```
 
 **nmap**
 
 ```bash
-nmap -sX -p 80 172.16.111.2
+nmap -sX -p 80 172.16.111.119
 ```
 
 - 端口关闭：
   - code
+  
+    ![xmas-close-code](img/xmas-close-code.jpg)
+  
   - nmap
+  
+    ![xmas-close-nmap](img/xmas-close-nmap.jpg)
+  
 - 端口开启：
   - code
+  
+    ![xmas-open-code](img/xmas-open-code.jpg)
+  
   - nmap
+  
+    ![xmas-close-nmap](img/xmas-close-nmap.jpg)
+  
 - 端口过滤：
   - code
+  
+    ![xmas-f-code](img/xmas-f-code.jpg)
+  
   - nmap
+  
+    ![xmas-f-nmap](img/xmas-f-nmap.jpg)
 
 
 
@@ -246,38 +320,54 @@ nmap -sX -p 80 172.16.111.2
 ```python
 from scapy.all import *
 
-dst_ip = "172.16.111.2" 
-dst_port = 80
 
-resp = sr1(IP(dst=dst_ip)/TCP(dport=dst_port,flags="F"),timeout=10)
+def finscan(dst_ip, dst_port, timeout=10):
+    pkts = sr1(IP(dst=dst_ip)/TCP(dport=dst_port, flags="F"), timeout=10)
+    if (pkts is None):
+        print("Open|Filtered")
+    elif(pkts.haslayer(TCP)):
+        if(pkts.getlayer(TCP).flags == 0x14):
+            print("Closed")
+    elif(pkts.haslayer(ICMP)):
+        if(int(pkts.getlayer(ICMP).type) == 3 and int(pkts.getlayer(ICMP).code) in [1, 2, 3, 9, 10, 13]):
+            print("Filtered")
 
-if(resp.haslayer(TCP)):
-    if(resp.getlayer(TCP).flags == 0x14):
-        print "Closed"
 
-elif resp is None:
-    print "Open|Filtered"
-
-#elif(resp.haslayer(ICMP)):
-#    if(int(resp.getlayer(ICMP).type)==3 and int(resp.getlayer(ICMP).code) in [1,2,3,9,10,13]):
-#        print "Filtered"
+finscan('172.16.111.119', 80)
 ```
 
 **nmap**
 
 ```bash
-nmap -sF -p 80 172.16.111.2
+nmap -sF -p 80 172.16.111.119
 ```
 
 - 端口关闭：
   - code
+  
+    ![fin-close-code](img/fin-close-code.jpg)
+  
   - nmap
+  
+    ![fin-close-nmap](img/fin-close-nmap.jpg)
+  
 - 端口开启：
   - code
+  
+    ![fin-open-code](img/fin-open-code.jpg)
+  
   - nmap
+  
+    ![fin-open-nmap](img/fin-open-nmap.jpg)
+  
 - 端口过滤：
   - code
+  
+    ![fin-code](img/fin-code.jpg)
+  
   - nmap
+  
+    ![fin-nmap](img/fin-nmap.jpg)
 
 
 
@@ -288,40 +378,57 @@ nmap -sF -p 80 172.16.111.2
 **TCP-NULL-scan code**
 
 ```python
+#! /usr/bin/python
 from scapy.all import *
 
-dst_ip = "172.16.111.2" 
-dst_port = 80
 
-resp = sr1(IP(dst=dst_ip)/TCP(dport=dst_port,flags=""),timeout=10)
+def nullscan(dst_ip, dst_port, timeout=10):
+    pkts = sr1(IP(dst=dst_ip)/TCP(dport=dst_port, flags=""), timeout=10)
+    if (pkts is None):
+        print("Open|Filtered")
+    elif(pkts.haslayer(TCP)):
+        if(pkts.getlayer(TCP).flags == 0x14):
+            print("Closed")
+    elif(pkts.haslayer(ICMP)):
+        if(int(pkts.getlayer(ICMP).type) == 3 and int(pkts.getlayer(ICMP).code) in [1, 2, 3, 9, 10, 13]):
+            print("Filtered")
 
-if(resp.haslayer(TCP)):
-    if(resp.getlayer(TCP).flags == 0x14):
-        print "Closed"
 
-elif resp is None:
-    print "Open|Filtered"
-
-#elif(resp.haslayer(ICMP)):
-#    if(int(resp.getlayer(ICMP).type)==3 and int(resp.getlayer(ICMP).code) in [1,2,3,9,10,13]):
-#        print "Filtered"
+nullscan('172.16.111.119', 80)
 ```
 
 **nmap**
 
 ```bash
-nmap -sN -p 80 172.16.111.2
+nmap -sN -p 80 172.16.111.119
 ```
 
 - 端口关闭：
   - code
+  
+    ![null-close-code](img/null-close-code.jpg)
+  
   - nmap
+  
+    ![null-close-nmap](img/null-close-nmap.jpg)
+  
 - 端口开启：
   - code
+  
+    ![null-code-open](img/null-code-open.jpg)
+  
   - nmap
+  
+    ![null-open-nmap](img/null-open-nmap.jpg)
+  
 - 端口过滤：
   - code
+  
+    ![null-code](img/null-code.jpg)
+  
   - nmap
+  
+    ![null-nmap](img/null-nmap.jpg)
 
 
 
@@ -333,49 +440,61 @@ nmap -sN -p 80 172.16.111.2
 
 ```python
 from scapy.all import *
-
-dst_ip = "172.16.111.2"
-dst_port = 53
-dst_timeout = 10
-
-def udp_scan(dst_ip,dst_port,dst_timeout):
-    resp = sr1(IP(dst=dst_ip)/UDP(dport=dst_port),timeout=dst_timeout)
-    if(resp.haslayer(ICMP)):
-        if(int(resp.getlayer(ICMP).type)==3 and int(resp.getlayer(ICMP).code)==3):
-            return "Closed"
-    elif resp is None:
-        return "Open|Filtered"
-#   elif(int(resp.getlayer(ICMP).type)==3 and int(resp.getlayer(ICMP).code) in [1,2,9,10,13])
-#       print "Filtered"
-
-print(udp_scan(dst_ip,dst_port,dst_timeout))
+def udpscan(dst_ip, dst_port, dst_timeout=10):
+    resp = sr1(IP(dst=dst_ip)/UDP(dport=dst_port), timeout=dst_timeout)
+    if (resp is None):
+        print("Open|Filtered")
+    elif (resp.haslayer(UDP)):
+        print("Open")
+    elif(resp.haslayer(ICMP)):
+        if(int(resp.getlayer(ICMP).type) == 3 and int(resp.getlayer(ICMP).code) == 3):
+            print("Closed")
+        elif(int(resp.getlayer(ICMP).type) == 3 and int(resp.getlayer(ICMP).code) in [1, 2, 9, 10, 13]):
+            print("Filtered")
+        elif(resp.haslayer(IP) and resp.getlayer(IP).proto == IP_PROTOS.udp):
+            print("Open")
+udpscan('172.16.111.119', 53)
 ```
 
 ##### nmap
 
 ```bash
-nmap -sU -p 53 172.16.111.2
+nmap -sU -p 53 172.16.111.119
 ```
 
 - 端口关闭：
   - code
+  
+    ![udp-closed-code](img/udp-closed-code.jpg)
+  
   - nmap
+  
+    ![udp-close-nmap](img/udp-close-nmap.jpg)
+  
 - 端口开启：
   - code
   - nmap
+  
 - 端口过滤：
   - code
   - nmap
 
 ## 课后思考题
 
-- 通过本章网络扫描基本原理的学习，试推测应用程序版本信息的扫描原理，和网络漏洞的扫描原理。
-- 网络扫描知识库的构建方法有哪些？
+- 扫描方式与端口状态的对应关系：
+
+  | 扫描方式/端口状态             | 开放                            | 关闭            | 过滤            |
+  | ----------------------------- | ------------------------------- | --------------- | --------------- |
+  | TCP connect / TCP stealth     | 完整的三次握手，能抓到ACK&RST包 | 只收到一个RST包 | 收不到任何TCP包 |
+  | TCP Xmas / TCP FIN / TCP NULL | 收不到TCP回复包                 | 收到一个RST包   | 收不到TCP回复包 |
+  | UDP                           | 收到UDP回复包                   | 收不到UDP回复包 | 收不到UDP回复包 |
+
+- 提供每一次扫描测试的抓包结果并分析与课本中的扫描方法原理是否相符？如果不同，试分析原因； 
+
+  结果是完全符合的。
 
 ## 参考资料
 
 - [alpine 常用命令](https://blog.csdn.net/liumiaocn/article/details/87603628)
 - [自己动手编程实现并讲解TCP connect scan/TCP stealth scan/TCP XMAS scan/UDP scan](https://www.likecs.com/show-203803956.html)
-
-- [师哥作业](https://github.com/CUCCS/2020-ns-public-LyuLumos/blob/ch0x01/ch0x05)
 
